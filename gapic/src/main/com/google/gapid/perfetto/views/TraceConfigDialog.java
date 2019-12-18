@@ -153,21 +153,33 @@ public class TraceConfigDialog extends DialogBase {
   public static PerfettoConfig.TraceConfig.Builder getConfig(
       Settings settings, Device.PerfettoCapability caps, String traceTarget) {
     PerfettoConfig.TraceConfig.Builder config = PerfettoConfig.TraceConfig.newBuilder();
+    int bufferIndex = 0;
 
     if (settings.perfettoCpu) {
       // Record process names.
+      config.addBuffers(PerfettoConfig.TraceConfig.BufferConfig.newBuilder()
+          .setSizeKb(8 * 1024)
+          .setFillPolicy(FillPolicy.RING_BUFFER));
       config.addDataSourcesBuilder()
           .getConfigBuilder()
               .setName("linux.process_stats")
+              .setTargetBuffer(bufferIndex)
               .getProcessStatsConfigBuilder()
                   .setScanAllProcessesOnStart(true);
+      ++bufferIndex;
 
+      config.addBuffers(PerfettoConfig.TraceConfig.BufferConfig.newBuilder()
+          .setSizeKb(32 * 1024)
+          .setFillPolicy(FillPolicy.RING_BUFFER));
       PerfettoConfig.FtraceConfig.Builder ftrace = config.addDataSourcesBuilder()
           .getConfigBuilder()
               .setName("linux.ftrace")
+              .setTargetBuffer(bufferIndex)
               .getFtraceConfigBuilder()
                   .setBufferSizeKb(FTRACE_BUFFER_SIZE)
                   .addAllFtraceEvents(Arrays.asList(CPU_BASE_FTRACE));
+      ++bufferIndex;
+
       if (settings.perfettoCpuFreq) {
         ftrace.addAllFtraceEvents(Arrays.asList(CPU_FREQ_FTRACE));
       }
@@ -209,25 +221,34 @@ public class TraceConfigDialog extends DialogBase {
     }
 
     if (settings.perfettoMem) {
+      config.addBuffers(PerfettoConfig.TraceConfig.BufferConfig.newBuilder()
+          .setSizeKb(8 * 1024)
+          .setFillPolicy(FillPolicy.RING_BUFFER));
       config.addDataSourcesBuilder()
           .getConfigBuilder()
               .setName("linux.sys_stats")
+              .setTargetBuffer(bufferIndex)
               .getSysStatsConfigBuilder()
                   .setMeminfoPeriodMs(settings.perfettoMemRate)
                   .addAllMeminfoCounters(Arrays.asList(MEM_COUNTERS));
+      ++bufferIndex;
     }
 
     if (settings.perfettoBattery) {
+      config.addBuffers(PerfettoConfig.TraceConfig.BufferConfig.newBuilder()
+          .setSizeKb(8 * 1024)
+          .setFillPolicy(FillPolicy.RING_BUFFER));
       config.addDataSourcesBuilder()
           .getConfigBuilder()
               .setName("android.power")
+              .setTargetBuffer(bufferIndex)
               .getAndroidPowerConfigBuilder()
                   .setBatteryPollMs(settings.perfettoBatteryRate)
                   .setCollectPowerRails(true)
                   .addAllBatteryCounters(Arrays.asList(BAT_COUNTERS));
+      ++bufferIndex;
     }
 
-    boolean largeBuffer = false;
     if (settings.perfettoVulkan) {
       Device.VulkanProfilingLayers vkLayers = caps.getVulkanProfileLayers();
       if (vkLayers.getCpuTiming() && settings.perfettoVulkanCPUTiming) {
@@ -248,11 +269,15 @@ public class TraceConfigDialog extends DialogBase {
           enabled.add("VkQueue");
         }
 
-        largeBuffer = true;
+        config.addBuffers(PerfettoConfig.TraceConfig.BufferConfig.newBuilder()
+            .setSizeKb(256 * 1024)
+            .setFillPolicy(FillPolicy.RING_BUFFER));
         config.addDataSourcesBuilder()
             .getConfigBuilder()
                 .setName("VulkanCPUTiming")
+                .setTargetBuffer(bufferIndex)
                 .setLegacyConfig(enabled.stream().collect(joining(":")));
+        ++bufferIndex;
       }
       if (vkLayers.getMemoryTracker() && settings.perfettoVulkanMemoryTracking) {
         List<String> enabled = Lists.newArrayList();
@@ -262,17 +287,19 @@ public class TraceConfigDialog extends DialogBase {
         if (settings.perfettoVulkanMemoryTrackingDriver) {
           enabled.add("Driver");
         }
+        config.addBuffers(PerfettoConfig.TraceConfig.BufferConfig.newBuilder()
+            .setSizeKb(1024 * 1024)
+            .setFillPolicy(FillPolicy.RING_BUFFER));
         config.addDataSourcesBuilder()
             .getConfigBuilder()
                 .setName("VulkanMemoryTracker")
+                .setTargetBuffer(bufferIndex)
                 .setLegacyConfig(enabled.stream().collect(joining(":")));
+                ++bufferIndex;
       }
     }
 
-    config.addBuffers(PerfettoConfig.TraceConfig.BufferConfig.newBuilder()
-        .setSizeKb((largeBuffer ? 8 : 1) * BUFFER_SIZE)
-        .setFillPolicy(FillPolicy.DISCARD));
-    config.setFlushPeriodMs((int)SECONDS.toMillis(5));
+    config.setFlushPeriodMs((int)SECONDS.toMillis(1));
 
     return config;
   }
