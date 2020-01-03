@@ -260,9 +260,15 @@ void ThreadlocalEmitter<T>::StartEvent(const char* category, const char* name) {
   if (category && !enabled_categories_.contains(category)) {
     return;
   }
+
+  uint64_t time = perfetto::base::GetBootTimeNs().count();
+  if (!last_reset_timestamp_ ||
+      time - last_reset_timestamp_ > reset_period_ms_ * 1000000) {
+    reset_ = true;
+    last_reset_timestamp_ = time;
+  }
   ResetIfNecessary();
   EmitThreadData();
-  uint64_t time = perfetto::base::GetBootTimeNs().count();
 
   PerfettoProducer<T>::Trace(
       [this, name, time,
@@ -294,7 +300,16 @@ void ThreadlocalEmitter<T>::EndEvent(const char* category) {
   if (category && !enabled_categories_.contains(category)) {
     return;
   }
+
   uint64_t time = perfetto::base::GetBootTimeNs().count();
+  if (!last_reset_timestamp_ ||
+      time - last_reset_timestamp_ > reset_period_ms_ * 1000000) {
+    reset_ = true;
+    last_reset_timestamp_ = time;
+  }
+  ResetIfNecessary();
+  EmitThreadData();
+
   PerfettoProducer<T>::Trace(
       [this, time, category](typename PerfettoProducer<T>::TraceContext ctx) {
         auto packet = ctx.NewTracePacket();
@@ -323,7 +338,7 @@ void ThreadlocalEmitter<T>::EmitVulkanMemoryUsageEvent(
   // in this case).
   bool is_reset = false;
   if (!last_reset_timestamp_ && (event->timestamp - last_reset_timestamp_) >
-                                    (SEQUENCE_RESET_PERIOD_MS * 1000000)) {
+                                    (reset_period_ms_ * 1000000)) {
     reset_ = true;
     is_reset = true;
     last_reset_timestamp_ = event->timestamp;
